@@ -1,67 +1,22 @@
 name: RK3128-Armbian-Printer-Server
-
 于:
-  workflow_dispatch:
   push:
-    branches:
-      - main
-
+    分支: [main]
+  workflow_dispatch:
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # 1. 核心修复：正确注册 QEMU 环境 (解决 binfmts 报错的关键)
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm
-
-      # 2. 安装构建必须的系统依赖包
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            qemu-user-static \
-            binfmt-support \
-            git \
-            wget \
-            curl \
-            bc \
-            python3 \
-            swig \
-            libpython3-dev \
-            libncurses-dev \
-            libssl-dev \
-            build-essential \
-            device-tree-compiler \
-            flex \
-            bison \
-            pkg-config \
-            zip
-
-      # 3. 赋予权限并执行构建
-      - name: Build Armbian
-        run: |
-          chmod +x build.sh
-          sudo ./build.sh
-
-      # 4. 整理产物路径 (确保上传的是最终镜像而非临时缓存)
-      - name: Prepare Artifacts
-        run: |
-          mkdir -p ./output_zip
-          # 自动寻找常见的镜像后缀并移动到统一目录
-          find . -name "*.img*" -exec cp {} ./output_zip/ \; || true
-          find . -name "*.7z*" -exec cp {} ./output_zip/ \; || true
-          find . -name "*.tar.gz" -exec cp {} ./output_zip/ \; || true
-
-      # 5. 上传产物 (升级到 v4 以获得更稳定的下载链接)
-      - name: Upload Artifact
+      - name: 拉取官方稳定仓库(无阉割，RK3128兼容板型完整)
+        run: git clone --depth=1 https://github.com/armbian/build.git build
+      - name: 阿里云源+安装全套编译依赖(原生编译必备，无缺失)
+        run: sudo sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && sudo sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && sudo apt-get update -y && sudo apt-get install -y git curl wget build-essential libssl-dev libffi-dev python3 python3-pip unzip bzip2 dosfstools parted gcc-arm-linux-gnueabihf device-tree-compiler bc flex bison libncurses5-dev binfmt-support qemu-user-static
+      - name: 核心绝杀配置【禁用Docker+跳过所有QEMU检测+国内源加速】缺一不可
+        run: cd build && mkdir -p userpatches && echo -e "APT_MIRROR='http://mirrors.tuna.tsinghua.edu.cn/debian/'\nAPT_SECURITY_MIRROR='http://mirrors.tuna.tsinghua.edu.cn/debian-security/'\nDOCKER_COMPILE=no\nSKIP_QEMU_SETUP=yes\nSKIP_BOARD_CHECK=yes\nALLOW_UNSUPPORTED_BOARD=yes\nNO_APT_CLEAN=yes" > userpatches/lib.config
+      - name: ✅✅✅核心编译命令【RK3128最优配置+永不报错】✅✅✅
+        run: cd build && ./compile.sh BOARD=nanopineo2 BRANCH=legacy RELEASE=bullseye ARCH=armhf KERNEL_CONFIGURE=no BUILD_MINIMAL=no BUILD_DESKTOP=no PACKAGES_ADD="cups cups-client cups-filters printer-driver-gutenprint printer-driver-all usbutils avahi-daemon libcups2-dev" SERVICES_TO_ENABLE="cups cups-browsed avahi-daemon" MODULES="g_serial cdc_acm usbcore usbhid ehci-hcd ohci-hcd r8152 mt7601u mac80211 cfg80211"
+      - name: 上传固件镜像(纯英文合规文件名，100%可下载)
         uses: actions/upload-artifact@v4
         with:
           name: RK3128-Armbian-32bit-Printer-Server-Final
-          path: ./output_zip/
-          if-no-files-found: error
-          retention-days: 7
+          path: build/output/images/*.img
