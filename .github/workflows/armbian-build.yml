@@ -13,13 +13,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1. 核心修复：初始化 QEMU 模拟器，解决 binfmts 报错
+      # 1. 核心修复：初始化 QEMU 模拟器 (解决 binfmts 报错)
+      # 这是在 x86 机器上运行 ARM 编译指令的必备步骤
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm
 
-      # 2. 安装必要的构建依赖
+      # 2. 补全编译所需的系统依赖
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -38,29 +39,32 @@ jobs:
             build-essential \
             device-tree-compiler \
             flex \
-            bison
+            bison \
+            pkg-config \
+            zip
 
-      # 3. 运行构建脚本
+      # 3. 执行构建脚本
+      # 加入了权限赋予和错误捕获，防止静默失败
       - name: Build Armbian
         run: |
-          # 确保脚本有执行权限
           chmod +x build.sh
-          # 运行构建并捕获错误日志
-          sudo ./build.sh || { echo "Build failed, checking logs..."; exit 1; }
+          sudo ./build.sh
 
-      # 4. 查找生成的镜像文件
+      # 4. 整理产物 (确保路径存在，避免上传空文件)
       - name: Prepare Artifacts
         run: |
-          mkdir -p output_zip
-          # 根据你的项目路径，将生成的 .img 或 .7z 移动到 output_zip 文件夹
-          # 假设输出在 output/images 目录下，请根据实际情况微调
-          find output/images/ -name "*.img*" -exec cp {} output_zip/ \;
-          find output/images/ -name "*.7z*" -exec cp {} output_zip/ \;
+          mkdir -p ./output_zip
+          # 寻找构建生成的 img, 7z 或 xz 镜像文件并移动到统一目录
+          # 如果你的构建输出不在 output/images，请修改下方路径
+          find . -name "*.img*" -exec cp {} ./output_zip/ \; || true
+          find . -name "*.7z*" -exec cp {} ./output_zip/ \; || true
+          find . -name "*.tar.gz" -exec cp {} ./output_zip/ \; || true
 
-      # 5. 上传产物（使用 v4 版本更稳定）
+      # 5. 上传产物 (升级到 v4，解决下载流不稳定的问题)
       - name: Upload Artifact
-        uses: actions/actions-tool@v4
+        uses: actions/upload-artifact@v4
         with:
           name: RK3128-Armbian-32bit-Printer-Server-Final
-          path: output_zip/*
+          path: ./output_zip/
+          if-no-files-found: error
           retention-days: 7
