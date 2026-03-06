@@ -1,22 +1,66 @@
 name: RK3128-Armbian-Printer-Server
-on:
-  push:
-    branches: [main]
+
+于:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: 拉取官方稳定仓库(无阉割，RK3128兼容板型完整)
-        run: git clone --depth=1 https://github.com/armbian/build.git build
-      - name: 阿里云源+安装全套编译依赖(原生编译必备，无缺失)
-        run: sudo sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && sudo sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && sudo apt-get update -y && sudo apt-get install -y git curl wget build-essential libssl-dev libffi-dev python3 python3-pip unzip bzip2 dosfstools parted gcc-arm-linux-gnueabihf device-tree-compiler bc flex bison libncurses5-dev binfmt-support qemu-user-static
-      - name: 核心绝杀配置【禁用Docker+跳过所有QEMU检测+国内源加速】缺一不可
-        run: cd build && mkdir -p userpatches && echo -e "APT_MIRROR='http://mirrors.tuna.tsinghua.edu.cn/debian/'\nAPT_SECURITY_MIRROR='http://mirrors.tuna.tsinghua.edu.cn/debian-security/'\nDOCKER_COMPILE=no\nSKIP_QEMU_SETUP=yes\nSKIP_BOARD_CHECK=yes\nALLOW_UNSUPPORTED_BOARD=yes\nNO_APT_CLEAN=yes" > userpatches/lib.config
-      - name: ✅✅✅核心编译命令【RK3128最优配置+永不报错】✅✅✅
-        run: cd build && ./compile.sh BOARD=nanopineo2 BRANCH=legacy RELEASE=bullseye ARCH=armhf KERNEL_CONFIGURE=no BUILD_MINIMAL=no BUILD_DESKTOP=no PACKAGES_ADD="cups cups-client cups-filters printer-driver-gutenprint printer-driver-all usbutils avahi-daemon libcups2-dev" SERVICES_TO_ENABLE="cups cups-browsed avahi-daemon" MODULES="g_serial cdc_acm usbcore usbhid ehci-hcd ohci-hcd r8152 mt7601u mac80211 cfg80211"
-      - name: 上传固件镜像(纯英文合规文件名，100%可下载)
-        uses: actions/upload-artifact@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 1. 核心修复：初始化 QEMU 模拟器，解决 binfmts 报错
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm
+
+      # 2. 安装必要的构建依赖
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            qemu-user-static \
+            binfmt-support \
+            git \
+            wget \
+            curl \
+            bc \
+            python3 \
+            swig \
+            libpython3-dev \
+            libncurses-dev \
+            libssl-dev \
+            build-essential \
+            device-tree-compiler \
+            flex \
+            bison
+
+      # 3. 运行构建脚本
+      - name: Build Armbian
+        run: |
+          # 确保脚本有执行权限
+          chmod +x build.sh
+          # 运行构建并捕获错误日志
+          sudo ./build.sh || { echo "Build failed, checking logs..."; exit 1; }
+
+      # 4. 查找生成的镜像文件
+      - name: Prepare Artifacts
+        run: |
+          mkdir -p output_zip
+          # 根据你的项目路径，将生成的 .img 或 .7z 移动到 output_zip 文件夹
+          # 假设输出在 output/images 目录下，请根据实际情况微调
+          find output/images/ -name "*.img*" -exec cp {} output_zip/ \;
+          find output/images/ -name "*.7z*" -exec cp {} output_zip/ \;
+
+      # 5. 上传产物（使用 v4 版本更稳定）
+      - name: Upload Artifact
+        uses: actions/actions-tool@v4
         with:
           name: RK3128-Armbian-32bit-Printer-Server-Final
-          path: build/output/images/*.img
+          path: output_zip/*
+          retention-days: 7
