@@ -13,14 +13,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1. 核心修复：初始化 QEMU 模拟器 (解决 binfmts 报错)
-      # 这是在 x86 机器上运行 ARM 编译指令的必备步骤
+      # 1. 核心修复：正确注册 QEMU 环境 (解决 binfmts 报错的关键)
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm
 
-      # 2. 补全编译所需的系统依赖
+      # 2. 安装构建必须的系统依赖包
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -43,24 +42,22 @@ jobs:
             pkg-config \
             zip
 
-      # 3. 执行构建脚本
-      # 加入了权限赋予和错误捕获，防止静默失败
+      # 3. 赋予权限并执行构建
       - name: Build Armbian
         run: |
           chmod +x build.sh
           sudo ./build.sh
 
-      # 4. 整理产物 (确保路径存在，避免上传空文件)
+      # 4. 整理产物路径 (确保上传的是最终镜像而非临时缓存)
       - name: Prepare Artifacts
         run: |
           mkdir -p ./output_zip
-          # 寻找构建生成的 img, 7z 或 xz 镜像文件并移动到统一目录
-          # 如果你的构建输出不在 output/images，请修改下方路径
+          # 自动寻找常见的镜像后缀并移动到统一目录
           find . -name "*.img*" -exec cp {} ./output_zip/ \; || true
           find . -name "*.7z*" -exec cp {} ./output_zip/ \; || true
           find . -name "*.tar.gz" -exec cp {} ./output_zip/ \; || true
 
-      # 5. 上传产物 (升级到 v4，解决下载流不稳定的问题)
+      # 5. 上传产物 (升级到 v4 以获得更稳定的下载链接)
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
